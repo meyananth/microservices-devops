@@ -1,0 +1,9 @@
+cat > services/user-service/.dockerignore << 'EOF'
+node_modules
+.git
+.env
+*.pem
+Dockerfile
+npm-debug.log
+__pycache__
+EOF
