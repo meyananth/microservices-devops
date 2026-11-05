@@ -1,0 +1,62 @@
+for svc in user:3001:users product:3002:products order:3003:orders; do
+  NAME=$(echo $svc | cut -d: -f1)
+  PORT=$(echo $svc | cut -d: -f2)
+  ROUTE=$(echo $svc | cut -d: -f3)
+  DIR=services/${NAME}-service
+  mkdir -p $DIR
+
+  cat > $DIR/package.json << EOF
+{
+  "name": "${NAME}-service",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "express": "4.19.2"
+  }
+}
+EOF
+
+  cat > $DIR/index.js << EOF
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || ${PORT};
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'UP', service: '${NAME}-service' });
+});
+
+app.get('/${ROUTE}', (req, res) => {
+  res.json([{ id: 1, name: 'sample-${NAME}-1' }, { id: 2, name: 'sample-${NAME}-2' }]);
+});
+
+app.listen(PORT, () => console.log('${NAME}-service listening on port ' + PORT));
+EOF
+
+  cat > $DIR/test.js << EOF
+console.log('${NAME}-service: basic test passed');
+EOF
+
+  cat > $DIR/Dockerfile << EOF
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY . .
+ENV PORT=${PORT}
+EXPOSE ${PORT}
+USER node
+CMD ["npm", "start"]
+EOF
+
+  cat > $DIR/.dockerignore << EOF
+node_modules
+.git
+.env
+*.pem
+npm-debug.log
+EOF
+done
