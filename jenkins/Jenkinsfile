@@ -83,7 +83,7 @@ pipeline {
 
             $SSH "cd ~/app && printf 'REGISTRY=$REGISTRY\\nTAG=$TAG\\n' > .env && \
               aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REGISTRY && \
-              docker compose pull && docker compose up -d"
+              docker compose pull && docker compose up -d && docker compose restart nginx"docker compose pull && docker compose up -d"
           '''
         }
       }
