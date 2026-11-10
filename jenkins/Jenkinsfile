@@ -47,7 +47,7 @@ pipeline {
       }
     }
 
-       stage('Push to ECR') {
+    stage('Push to ECR') {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                           credentialsId: 'aws-creds',
@@ -83,7 +83,7 @@ pipeline {
 
             $SSH "cd ~/app && printf 'REGISTRY=$REGISTRY\\nTAG=$TAG\\n' > .env && \
               aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REGISTRY && \
-              docker compose pull && docker compose up -d && docker compose restart nginx"docker compose pull && docker compose up -d"
+              docker compose pull && docker compose up -d && docker compose restart nginx"
           '''
         }
       }
@@ -100,6 +100,7 @@ pipeline {
         '''
       }
     }
+  } // <-- this closes "stages" (it was missing)
 
   post {
     success { echo "Deployed version ${TAG} to ${EC2_IP}" }
