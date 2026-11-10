@@ -1,0 +1,106 @@
+pipeline {
+  agent any
+
+  environment {
+    AWS_REGION = 'ap-south-1'
+    ACCOUNT_ID = '350138346318'
+    REGISTRY   = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    TAG        = "1.0.${BUILD_NUMBER}"
+    EC2_IP     = 'PASTE_EC2_PUBLIC_IP'
+    SERVICES   = 'user-service product-service order-service'
+  }
+
+  options { timestamps() }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Validate Config') {
+      steps {
+        sh '''
+          REGISTRY=$REGISTRY TAG=$TAG docker compose -f docker-compose.ec2.yml config -q
+          echo "Compose config OK"
+        '''
+      }
+    }
+
+    stage('Test') {
+      steps {
+        sh '''
+          for s in $SERVICES; do
+            echo "== testing $s =="
+            (cd services/$s && npm ci && npm test --if-present)
+          done
+        '''
+      }
+    }
+
+    stage('Build & Tag') {
+      steps {
+        sh '''
+          for s in $SERVICES; do
+            docker build -t $REGISTRY/$s:$TAG -t $REGISTRY/$s:latest services/$s
+          done
+        '''
+      }
+    }
+
+    stage('Push to ECR') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-creds',
+            usernameVariable: 'AWS_ACCESS_KEY_ID',
+            passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          sh '''
+            aws ecr get-login-password --region $AWS_REGION | \
+              docker login --username AWS --password-stdin $REGISTRY
+            for s in $SERVICES; do
+              docker push $REGISTRY/$s:$TAG
+              docker push $REGISTRY/$s:latest
+            done
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to EC2') {
+      steps {
+        sshagent(['ec2-ssh']) {
+          sh '''
+            SSH="ssh -o StrictHostKeyChecking=no ubuntu@$EC2_IP"
+            scp -o StrictHostKeyChecking=no docker-compose.ec2.yml ubuntu@$EC2_IP:~/app/docker-compose.yml
+            scp -o StrictHostKeyChecking=no -r nginx ubuntu@$EC2_IP:~/app/
+
+            # remember previous tag for rollback
+            $SSH "cd ~/app && [ -f .env ] && grep '^TAG=' .env | cut -d= -f2 > .prev_tag || true"
+
+            $SSH "cd ~/app && printf 'REGISTRY=$REGISTRY\\nTAG=$TAG\\n' > .env && \
+              aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REGISTRY && \
+              docker compose pull && docker compose up -d"
+          '''
+        }
+      }
+    }
+
+    stage('Verify') {
+      steps {
+        sh '''
+          sleep 25
+          curl -f http://$EC2_IP/health
+          curl -f http://$EC2_IP/users/health
+          curl -f http://$EC2_IP/products/health
+          curl -f http://$EC2_IP/orders/health
+        '''
+      }
+    }
+  }
+
+  post {
+    success { echo "Deployed version ${TAG} to ${EC2_IP}" }
+    failure {
+      echo "Pipeline FAILED. Check the console log. Rollback: set TAG to the value in ~/app/.prev_tag on EC2 and run docker compose up -d"
+    }
+    always { sh 'docker logout $REGISTRY || true' }
+  }
+}
