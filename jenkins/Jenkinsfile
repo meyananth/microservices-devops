@@ -6,7 +6,7 @@ pipeline {
     ACCOUNT_ID = '350138346318'
     REGISTRY   = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     TAG        = "1.0.${BUILD_NUMBER}"
-    EC2_IP     = 'YOUR_REAL_EC2_PUBLIC_IP'
+    EC2_IP     = '<the-ip>'
     SERVICES   = 'user-service product-service order-service'
   }
 
