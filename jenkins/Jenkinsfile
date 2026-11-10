@@ -6,7 +6,7 @@ pipeline {
     ACCOUNT_ID = '350138346318'
     REGISTRY   = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     TAG        = "1.0.${BUILD_NUMBER}"
-    EC2_IP     = 'PASTE_EC2_PUBLIC_IP'
+    EC2_IP     = 'YOUR_REAL_EC2_PUBLIC_IP'
     SERVICES   = 'user-service product-service order-service'
   }
 
@@ -47,30 +47,35 @@ pipeline {
       }
     }
 
-stage('Push to ECR') {
+    stage('Push to ECR') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'aws-creds',
                          usernameVariable: 'AWS_ACCESS_KEY_ID',
                          passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
           sh '''
-            export AWS_DEFAULT_REGION=ap-south-1
+            export AWS_DEFAULT_REGION=$AWS_REGION
             aws sts get-caller-identity
-            aws ecr get-login-password --region ap-south-1 | \
-              docker login --username AWS --password-stdin 350138346318.dkr.ecr.ap-south-1.amazonaws.com
+            aws ecr get-login-password --region $AWS_REGION | \
+              docker login --username AWS --password-stdin $REGISTRY
+            for s in $SERVICES; do
+              docker push $REGISTRY/$s:$TAG
+              docker push $REGISTRY/$s:latest
+            done
           '''
-        }   
-      }     
-    }       
-  }         
-    
+        }
+      }
+    }
 
     stage('Deploy to EC2') {
       steps {
-        sshagent(['ec2-ssh']) {
+        withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh',
+                                           keyFileVariable: 'SSH_KEY')]) {
           sh '''
-            SSH="ssh -o StrictHostKeyChecking=no ubuntu@$EC2_IP"
-            scp -o StrictHostKeyChecking=no docker-compose.ec2.yml ubuntu@$EC2_IP:~/app/docker-compose.yml
-            scp -o StrictHostKeyChecking=no -r nginx ubuntu@$EC2_IP:~/app/
+            OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no"
+            SSH="ssh $OPTS ubuntu@$EC2_IP"
+
+            scp $OPTS docker-compose.ec2.yml ubuntu@$EC2_IP:~/app/docker-compose.yml
+            scp $OPTS -r nginx ubuntu@$EC2_IP:~/app/
 
             # remember previous tag for rollback
             $SSH "cd ~/app && [ -f .env ] && grep '^TAG=' .env | cut -d= -f2 > .prev_tag || true"
