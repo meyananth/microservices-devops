@@ -92,15 +92,14 @@ pipeline {
     stage('Verify') {
       steps {
         sh '''
-          sleep 25
-          curl -f http://$EC2_IP/health
-          curl -f http://$EC2_IP/users/health
-          curl -f http://$EC2_IP/products/health
-          curl -f http://$EC2_IP/orders/health
+          sleep 15
+          curl -f --retry 6 --retry-delay 5 --retry-connrefused http://$EC2_IP/health
+          curl -f --retry 6 --retry-delay 5 --retry-connrefused http://$EC2_IP/users/health
+          curl -f --retry 6 --retry-delay 5 --retry-connrefused http://$EC2_IP/products/health
+          curl -f --retry 6 --retry-delay 5 --retry-connrefused http://$EC2_IP/orders/health
         '''
       }
     }
-  }
 
   post {
     success { echo "Deployed version ${TAG} to ${EC2_IP}" }
