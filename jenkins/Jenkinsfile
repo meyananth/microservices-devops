@@ -1,6 +1,8 @@
 pipeline {
   agent any
 
+  options { timestamps() }
+
   environment {
     PATH       = "C:\\Program Files\\Git\\bin;C:\\Program Files\\Git\\usr\\bin;${env.PATH}"
     AWS_REGION = 'ap-south-1'
@@ -11,10 +13,6 @@ pipeline {
     SERVICES   = 'user-service product-service order-service'
   }
 
-  // ... everything below stays exactly the same
-
-  options { timestamps() }
-
   stages {
     stage('Checkout') {
       steps { checkout scm }
@@ -23,6 +21,7 @@ pipeline {
     stage('Validate Config') {
       steps {
         sh '''
+          set -e
           REGISTRY=$REGISTRY TAG=$TAG docker compose -f docker-compose.ec2.yml config -q
           echo "Compose config OK"
         '''
@@ -32,6 +31,7 @@ pipeline {
     stage('Test') {
       steps {
         sh '''
+          set -e
           for s in $SERVICES; do
             echo "== testing $s =="
             (cd services/$s && npm ci && npm test --if-present)
@@ -43,6 +43,7 @@ pipeline {
     stage('Build & Tag') {
       steps {
         sh '''
+          set -e
           for s in $SERVICES; do
             docker build -t $REGISTRY/$s:$TAG -t $REGISTRY/$s:latest services/$s
           done
@@ -57,6 +58,7 @@ pipeline {
                           accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                           secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
           sh '''
+            set -e
             export AWS_DEFAULT_REGION=$AWS_REGION
             aws sts get-caller-identity
             aws ecr get-login-password --region $AWS_REGION | \
@@ -75,6 +77,7 @@ pipeline {
         withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh',
                                            keyFileVariable: 'SSH_KEY')]) {
           sh '''
+            set -e
             OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no"
             SSH="ssh $OPTS ubuntu@$EC2_IP"
 
@@ -95,6 +98,7 @@ pipeline {
     stage('Verify') {
       steps {
         sh '''
+          set -e
           sleep 15
           curl -f --retry 6 --retry-delay 5 --retry-connrefused http://$EC2_IP/health
           curl -f --retry 6 --retry-delay 5 --retry-connrefused http://$EC2_IP/users/health
@@ -102,14 +106,24 @@ pipeline {
           curl -f --retry 6 --retry-delay 5 --retry-connrefused http://$EC2_IP/orders/health
         '''
       }
+      post {
+        failure {
+          echo "Verify failed - rolling back to previous tag"
+          withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh',
+                                             keyFileVariable: 'SSH_KEY')]) {
+            sh '''
+              OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no"
+              ssh $OPTS ubuntu@$EC2_IP 'cd ~/app && [ -s .prev_tag ] && P=$(cat .prev_tag) && printf "REGISTRY=%s\\nTAG=%s\\n" "'$REGISTRY'" "$P" > .env && docker compose up -d && echo "Rolled back to $P" || echo "No previous tag, rollback skipped"'
+            '''
+          }
+        }
+      }
     }
-  } // <-- this closes "stages" (it was missing)
+  }
 
   post {
     success { echo "Deployed version ${TAG} to ${EC2_IP}" }
-    failure {
-      echo "Pipeline FAILED. Check the console log. Rollback: set TAG to the value in ~/app/.prev_tag on EC2 and run docker compose up -d"
-    }
-    always { sh 'docker logout $REGISTRY || true' }
+    failure { echo "Pipeline FAILED. Check the console log." }
+    always  { sh 'docker logout $REGISTRY || true' }
   }
 }
