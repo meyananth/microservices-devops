@@ -1,0 +1,39 @@
+services:
+  node-exporter:
+    image: prom/node-exporter:latest
+    command: ['--path.rootfs=/host']
+    pid: host
+    volumes: ['/:/host:ro,rslave']
+    restart: unless-stopped
+    networks: [mon]
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    restart: unless-stopped
+    networks: [mon, app]
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    ports: ['127.0.0.1:9090:9090']
+    restart: unless-stopped
+    networks: [mon]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ['127.0.0.1:3000:3000']
+    volumes: [grafana-data:/var/lib/grafana]
+    restart: unless-stopped
+    networks: [mon]
+
+networks:
+  mon:
+  app:
+    external: true
+    name: app_appnet
+
+volumes:
+  prom-data:
+  grafana-data:
