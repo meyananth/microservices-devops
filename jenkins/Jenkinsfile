@@ -2,6 +2,7 @@ pipeline {
   agent any
 
   environment {
+    PATH       = "C:\\Program Files\\Git\\bin;C:\\Program Files\\Git\\usr\\bin;${env.PATH}"
     AWS_REGION = 'ap-south-1'
     ACCOUNT_ID = '350138346318'
     REGISTRY   = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -9,6 +10,8 @@ pipeline {
     EC2_IP     = '3.109.55.42'
     SERVICES   = 'user-service product-service order-service'
   }
+
+  // ... everything below stays exactly the same
 
   options { timestamps() }
 
