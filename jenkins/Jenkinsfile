@@ -81,6 +81,7 @@ pipeline {
             OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no"
             SSH="ssh $OPTS ubuntu@$EC2_IP"
 
+            $SSH "mkdir -p ~/app"
             scp $OPTS docker-compose.ec2.yml ubuntu@$EC2_IP:~/app/docker-compose.yml
             scp $OPTS -r nginx ubuntu@$EC2_IP:~/app/
 
