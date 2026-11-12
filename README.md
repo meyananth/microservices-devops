@@ -145,7 +145,7 @@ On EC2 in `~/monitoring`:
 - **Prometheus** scrapes itself, Node Exporter (host CPU, memory, disk) and Blackbox Exporter
 - **Blackbox Exporter** probes `/health`, `/users/health`, `/products/health` and `/orders/health` through Nginx (`probe_success`)
 - **Grafana** uses Prometheus as data source. Dashboards: Node Exporter Full (ID 1860) and Service Availability
-
+![Grafana Node Exporter Full](docs/screenshots/03-grafana-node-exporter.png)
 Access over an SSH tunnel:
 
 ```bash
