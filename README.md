@@ -1,221 +1,198 @@
-Microservices CI/CD on AWS (GitHub, Jenkins, Docker, Terraform, ECR, Prometheus, Grafana)
-A repeatable DevOps delivery process that builds, ships, deploys and monitors three existing microservices (User, Product, Order) on a single AWS EC2 instance.
+# Microservices CI/CD, AWS Deployment and Monitoring
+
+End-to-end DevOps implementation for three existing microservices (User, Product, Order) using
+GitHub, Jenkins, Docker, Docker Compose, Nginx, Terraform, Amazon ECR, AWS EC2, Prometheus and Grafana.
+
+Repository: https://github.com/meyananth/microservices-devops
+
 > Scope: DevOps only. The application code was supplied and not modified.
----
-1. Architecture
+
+## 1. Architecture
+
 ```mermaid
 flowchart LR
-    Dev[Developer] -->|git push / PR| GH[GitHub Repo]
-    GH -->|webhook / polling| J[Jenkins<br/>local workstation]
-    J -->|docker build + tag| J
-    J -->|push images| ECR[(Amazon ECR<br/>user / product / order)]
-    J -->|SSH deploy| EC2
+    Dev[Developer] -->|git push / PR| GH[GitHub]
+    GH -->|webhook / polling| J[Jenkins<br/>workstation]
+    J -->|build + tag + push| ECR[(Amazon ECR<br/>user / product / order)]
+    J -->|SSH deploy| NG
 
-    subgraph AWS ap-south-1
-      ECR
-      subgraph EC2[EC2 Ubuntu t3.micro - IAM role]
-        NG[Nginx :80]
-        US[user-service]
-        PS[product-service]
-        OS[order-service]
-        NG --> US
-        NG --> PS
-        NG --> OS
-        PROM[Prometheus :9090]
-        NE[Node Exporter]
-        BB[Blackbox Exporter]
-        GF[Grafana :3000]
-        PROM --> NE
-        PROM --> BB
-        GF --> PROM
-      end
-      ECR -->|docker pull via instance role| EC2
+    subgraph EC2[EC2 Ubuntu t3.micro, ap-south-1]
+      NG[Nginx :80]
+      US[user-service :3001]
+      PS[product-service :3002]
+      OS[order-service :3003]
+      NG -->|/users| US
+      NG -->|/products| PS
+      NG -->|/orders| OS
+      PROM[Prometheus] --> NE[Node Exporter]
+      PROM --> BB[Blackbox Exporter]
+      GF[Grafana] --> PROM
     end
 
-    User[Client] -->|HTTP :80| NG
-    Admin[Admin] -.->|SSH tunnel only| GF
+    ECR -->|docker pull via IAM instance role| EC2
+    Client[Client] -->|HTTP :80| NG
+    Admin[Admin] -.->|SSH tunnel| GF
 ```
-Key design choices
-Area	Choice
-Infrastructure	Terraform: 1 EC2, 3 ECR repos, security group, IAM role + instance profile
-Orchestration	Docker Compose (no Kubernetes, RDS, NAT or load balancer)
-Routing	Nginx reverse proxy on port 80
-CI/CD	Jenkins on a local workstation, `Jenkinsfile` in the repo
-Auth to ECR	EC2 uses an IAM role; Jenkins uses stored Jenkins credentials (no hardcoded keys)
-Monitoring	Prometheus + Node Exporter + Blackbox Exporter + Grafana
-Access	SSH restricted to my IP; Grafana/Prometheus reached only through an SSH tunnel
----
-2. Repository structure
-> Adjust this block to match your actual folders.
-```
-microservices-devops/
-├── user-service/            # Dockerfile + source
-├── product-service/
-├── order-service/
-├── nginx/                   # nginx.conf
-├── docker-compose.yml       # local run
-├── docker-compose.ec2.yml   # EC2 deployment (uses ECR images)
-├── jenkins/
-│   └── Jenkinsfile
-├── terraform/
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── terraform.tfvars.example
-├── monitoring/
-│   ├── docker-compose.yml
-│   └── prometheus.yml
-├── docs/                    # screenshots, plan/destroy output, notes
-└── README.md
-```
----
-3. Prerequisites
-Local machine (WSL / Linux)
-Git, Docker Engine, Docker Compose
-Terraform >= 1.5
-AWS CLI v2, configured with an IAM user that can create EC2, ECR and IAM resources
-An EC2 key pair (`microservices-key`) with the `.pem` stored outside the repo (`chmod 400`)
-Jenkins server (workstation)
-Jenkins with plugins: Git, Pipeline, Credentials Binding, AWS Credentials, SSH Agent
-Docker and AWS CLI available to the Jenkins agent
-Credentials added in Jenkins:
-`aws-creds` (type: AWS Credentials)
-`ec2-ssh` (type: SSH Username with private key)
-AWS
-Region: `ap-south-1`
-Budget alert configured before provisioning
----
-4. Security practices
-`.gitignore` excludes `*.pem`, `*.tfstate*`, `.terraform/`, `.env`, `terraform.tfvars`
-No AWS keys or passwords in code; Jenkins credentials + EC2 IAM role are used
-Security group inbound: SSH (22) from my IP only, HTTP (80) from the internet; Jenkins, Prometheus and Grafana are not exposed publicly
-IAM role on EC2 grants only the ECR read/pull permissions it needs
----
-5. Deployment steps
-5.1 Provision infrastructure (Terraform)
+
+Infrastructure (EC2, 3 ECR repositories, security group, IAM role and instance profile) is created with Terraform.
+
+## 2. Repository structure
+
+| Path | Purpose |
+|------|---------|
+| `services/` | The three microservices and their Dockerfiles |
+| `nginx/` | Nginx reverse proxy configuration |
+| `docker-compose.yml` | Local multi-container run |
+| `docker-compose.ec2.yml` | Deployment file used on EC2 (images come from ECR via `REGISTRY` and `TAG`) |
+| `jenkins/Jenkinsfile` | CI/CD pipeline |
+| `terraform/` | AWS infrastructure as code |
+| `monitoring/` | Prometheus config and monitoring compose file |
+| `docs/` | Screenshots and evidence |
+
+## 3. Prerequisites
+
+- AWS account (region `ap-south-1`), AWS CLI configured on the workstation
+- Terraform, Docker, Git
+- Jenkins on the workstation with Docker access and these credentials:
+  - `aws-creds` (AWS Credentials type)
+  - `ec2-ssh` (SSH private key for the EC2 host)
+- An EC2 key pair (`microservices-key`). The `.pem` file is never committed.
+
+## 4. Security notes
+
+- No secrets, keys or state files are committed: `*.pem`, `.env`, `*.tfstate`, `.terraform/` and `*.tfvars` are in `.gitignore`.
+- EC2 pulls from ECR through an IAM instance role. No AWS keys are stored on the host.
+- SSH (port 22) is limited to the administrator IP. Only port 80 is public.
+- Prometheus (9090) and Grafana (3000) are bound to `127.0.0.1` on EC2 and reached through an SSH tunnel.
+- Jenkins is not exposed publicly.
+
+## 5. Provision infrastructure (Terraform)
+
 ```bash
 cd terraform
-cp terraform.tfvars.example terraform.tfvars   # set key name and your IP
 terraform init
 terraform validate
 terraform plan -out=tfplan
 terraform apply tfplan
-terraform output                               # EC2 public IP, ECR URLs
+terraform output
 ```
-Creates: 1 EC2 (Ubuntu, t3.micro, Docker/Compose/AWS CLI installed via cloud-init), 3 ECR repositories, security group, IAM role/profile.
-5.2 Verify the EC2 host
-```bash
-ssh -i ~/.ssh/microservices-key.pem ubuntu@<EC2_PUBLIC_IP>
-docker --version && docker compose version && aws --version
-df -h && free -m
-```
-5.3 Build, tag and run locally (sanity check)
-```bash
-docker compose up -d --build
-curl http://localhost/users/health
-curl http://localhost/products/health
-curl http://localhost/orders/health
-```
-5.4 Push images to ECR (manual first run)
-```bash
-aws ecr get-login-password --region ap-south-1 \
-  | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com
 
-docker tag user-service:1.0.0 <ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/user-service:1.0.0
-docker push <ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/user-service:1.0.0
-# repeat for product-service and order-service
-```
-5.5 Deploy with the Jenkins pipeline
-Create a Pipeline job (`microservices`) using Pipeline script from SCM, path `jenkins/Jenkinsfile`.
-Add a GitHub webhook (or poll SCM) to trigger on push to `main`.
-Pipeline stages:
-Checkout: pull source from GitHub
-Validate: validate compose/config files
-Test: run available application tests
-Build & Tag: build 3 images, tag with the build version
-Push to ECR: authenticate with `aws-creds`, push versioned images
-Deploy to EC2: SSH with `ec2-ssh`, set the image tag, `docker compose pull && up -d`
-Health Check: verify Nginx routing and all `/health` endpoints
-`post { failure { ... } }` prints logs and marks the build failed.
-5.6 Start monitoring on EC2
+Resources created: 1 EC2 instance (t3.micro, Ubuntu, Docker, Docker Compose and AWS CLI installed by cloud-init),
+3 ECR repositories, a security group and an IAM role with an instance profile for ECR pull access.
+Variables and outputs make the configuration reusable. State stays local and is not committed.
+
+## 6. Branch workflow
+
+- `main`: stable, release-ready
+- feature branches for changes, merged through pull requests
+- Jenkins is triggered by a GitHub webhook (or SCM polling) on push
+
+## 7. CI/CD pipeline (Jenkins)
+
+Job `microservices` runs `jenkins/Jenkinsfile`. Stages:
+
+1. **Checkout**: pull the repository from GitHub
+2. **Validate**: configuration checks (compose and file validation)
+3. **Test**: run available application tests
+4. **Build & Tag**: build all three images and tag them with the build version
+5. **Push to ECR**: authenticate with `aws-creds` and push versioned images
+6. **Deploy to EC2**: create `~/app`, copy the compose file over SSH (`ec2-ssh`), then `docker compose pull` and `up -d` with the selected `TAG`
+7. **Verify**: check the health endpoints through Nginx
+
+On failure the pipeline stops, keeps the build log and reports the failed stage.
+
+![Jenkins pipeline success](docs/screenshots/01-jenkins-success.png)
+
+## 8. Deployment
+
+On EC2 the application lives in `~/app`:
+
 ```bash
-cd ~/monitoring
-docker compose up -d
-```
-Access from your workstation through an SSH tunnel (nothing is public):
-```bash
-ssh -i ~/.ssh/microservices-key.pem \
-    -L 3000:localhost:3000 -L 9090:localhost:9090 \
-    ubuntu@<EC2_PUBLIC_IP>
-```
-Grafana: http://localhost:3000 (data source: Prometheus)
-Prometheus: http://localhost:9090 (targets: node, prometheus, 4 service probes)
-Dashboards: Service Availability (`probe_success`) and Node Exporter Full (ID 1860) for CPU, memory and disk
-5.7 Verify
-```bash
-curl http://<EC2_PUBLIC_IP>/users/health
-curl http://<EC2_PUBLIC_IP>/products/health
-curl http://<EC2_PUBLIC_IP>/orders/health
-```
----
-6. Release management and rollback
-Versioning: every Jenkins build produces images tagged with the build version (for example `1.0.13`) in ECR. Older tags stay available.
-Update: push a change to `main`, then Jenkins builds, tags, pushes and deploys the new version.
-Rollback / recovery
-```bash
-ssh -i ~/.ssh/microservices-key.pem ubuntu@<EC2_PUBLIC_IP>
 cd ~/app
-# set IMAGE_TAG to the last known-good version (e.g. 1.0.12)
-export IMAGE_TAG=1.0.12
-docker compose -f docker-compose.ec2.yml pull
-docker compose -f docker-compose.ec2.yml up -d
-curl http://localhost/products/health
+cat .env                 # REGISTRY and TAG
+docker compose up -d
+docker ps
 ```
-Rollback demonstrated: version `1.0.13` rolled back to `1.0.12` with all health endpoints returning OK.
----
-7. Troubleshooting notes
-7.1 Simulated failure drill
-Step	Detail
-Fault injected	`docker stop app-product-service-1`
-Detection	Grafana Service Availability showed `/products/health` as DOWN; Prometheus probe `probe_success = 0`
-Investigation	`docker ps -a`, `docker logs app-product-service-1`, `docker inspect`
-Root cause	Container was stopped manually
-Recovery	`docker compose -f docker-compose.ec2.yml up -d`
-Verification	All 4 endpoints back UP in Grafana and via `curl`
-7.2 Issues faced and fixes
-Problem	Cause	Fix
-`git push` failed: `src refspec main does not match any`	No commit existed yet / branch name mismatch	Commit first, then `git branch -M main`
-Push rejected: `fetch first`	Remote already had commits	`git pull --rebase origin main`, then push
-Nginx not reachable on port 80	Wrong port mapping `80:81` in `docker-compose.ec2.yml`	Changed to `80:80`
-Jenkins ECR/SSH stage failures	Credential type / ID mismatch	Used `aws-creds` (AWS Credentials type) and `ec2-ssh` (SSH key)
-7.3 Useful commands
+
+Verify routing and health:
+
 ```bash
-docker ps -a
-docker logs <container> --tail 100
-docker compose -f docker-compose.ec2.yml ps
-sudo journalctl -u docker --since "1 hour ago"
-sudo tail -f /var/log/syslog
-df -h; free -m; top
+curl -i http://<EC2_PUBLIC_IP>/health
+curl -i http://<EC2_PUBLIC_IP>/users/health
+curl -i http://<EC2_PUBLIC_IP>/products/health
+curl -i http://<EC2_PUBLIC_IP>/orders/health
 ```
----
-8. Cleanup
-Destroy everything to avoid AWS charges:
+
+## 9. Rollback and recovery
+
+Images are versioned in ECR, and the compose file reads the version from `TAG` in `.env`.
+
+```bash
+cd ~/app
+sed -i 's/^TAG=.*/TAG=1.0.12/' .env     # known-good version
+docker compose up -d
+docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+curl -i http://localhost/products/health
+```
+
+To roll forward, set `TAG` back to the newer version (for example `1.0.13`) and run `docker compose up -d` again.
+Demonstrated: build `1.0.13` rolled back to `1.0.12`, all services healthy.
+
+## 10. Monitoring
+
+On EC2 in `~/monitoring`:
+
+- **Prometheus** scrapes itself, Node Exporter (host CPU, memory, disk) and Blackbox Exporter
+- **Blackbox Exporter** probes `/health`, `/users/health`, `/products/health` and `/orders/health` through Nginx (`probe_success`)
+- **Grafana** uses Prometheus as data source. Dashboards: Node Exporter Full (ID 1860) and Service Availability
+
+Access over an SSH tunnel:
+
+```bash
+ssh -i <key>.pem -L 3000:localhost:3000 -L 9090:localhost:9090 ubuntu@<EC2_PUBLIC_IP>
+```
+
+Then open `http://localhost:3000` (Grafana) and `http://localhost:9090/targets` (Prometheus).
+
+## 11. Troubleshooting drill
+
+| Step | Detail |
+|------|--------|
+| Simulated failure | `docker stop app-product-service-1` |
+| Symptom | Grafana Service Availability: `products/health` DOWN |
+| Detection | Prometheus `probe_success = 0` for the products endpoint |
+| Investigation | `docker ps -a` (container Exited), `docker logs app-product-service-1`, `curl -i http://localhost/products/health` |
+| Root cause | Product container was stopped, so Nginx could not reach the upstream |
+| Fix | `docker start app-product-service-1` (or `docker compose up -d`) |
+| Verification | All 4 endpoints UP in Grafana, `/products/health` returns 200 |
+
+Issues faced during the build and how they were fixed:
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `git push` failed: `src refspec main does not match any` | No commit yet on `main` | Commit first, then push |
+| Push rejected: `fetch first` | Remote already had commits | `git pull --rebase origin main`, then push |
+| Nginx not reachable on port 80 | Wrong port mapping `80:81` in `docker-compose.ec2.yml` | Changed to `80:80` |
+| Jenkins ECR/SSH stage failures | Credential type / ID mismatch | `aws-creds` (AWS Credentials type) and `ec2-ssh` (SSH key) |
+| Deploy stage failed on `scp` | `~/app` did not exist on EC2 | Pipeline now creates `~/app` before copying |
+
+Other useful checks: `docker logs <container>`, `journalctl -u docker`, `df -h`, `free -m`, `top`.
+
+## 12. Evidence
+
+Screenshots are stored in `docs/screenshots/`.
+
+## 13. Cleanup
+
 ```bash
 cd terraform
-terraform plan -destroy -out=destroy.tfplan
 terraform destroy
 ```
-Resources destroyed (8): EC2 instance, 3 ECR repositories, security group, IAM role, instance profile and policy attachment.
+
+`terraform destroy` was run after the demo and removed 8 resources: the EC2 instance, 3 ECR repositories,
+the security group, and the IAM role, instance profile and policy attachment. The destroy plan is saved as evidence.
+
 Afterwards:
-Disable the Jenkins job so webhooks do not trigger deployments
-Confirm in the AWS console that no EC2, ECR or Elastic IP resources remain
-Keep the budget alert enabled
----
-9. Evidence (see `docs/`)
-Jenkins successful pipeline run
-Terraform plan, apply and destroy output
-ECR repositories with versioned images
-Three services running on EC2 and Nginx routing
-Prometheus targets and Grafana dashboards
-Failure simulation and recovery
-Rollback demonstration
+- Disable the Jenkins job so webhooks do not trigger deployments
+- Check the AWS console for leftover resources
+- Keep a budget alert configured
