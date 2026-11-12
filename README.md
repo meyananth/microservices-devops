@@ -85,7 +85,7 @@ Variables and outputs make the configuration reusable. State stays local and is 
 
 - `main`: stable, release-ready
 - feature branches for changes, merged through pull requests
-- Jenkins is triggered by a GitHub webhook (or SCM polling) on push
+- Jenkins polls the GitHub repository (Poll SCM) for new commits on `main`h
 
 ## 7. CI/CD pipeline (Jenkins)
 
